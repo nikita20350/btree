@@ -7,6 +7,7 @@
 
 typedef struct btreenode {
     int keys[M - 1];
+    void* values[M - 1];
     struct btreenode* children[M];
     int nOKeys;
     int nOChildren;
@@ -21,23 +22,24 @@ typedef struct tree {
 
 void initTree(btree* tree); 
 btnode* btree_createNode(btree* tree);
-btnode* btree_createNodeWithVal(btree* tree, int val);
+btnode* btree_createNodeWithVal(btree* tree, int key, void* value);
 
 // main operations
 
-void btree_insert(btree* tree, int val);
-btnode* btree_insertIntoNode(btree* tree, btnode* node, int val);
-void btree_delete(btree* tree, int val);
-void btree_deleteFromNode(btree* tree, btnode* node, int val);
-int btree_search(btnode* root, int val);
+void btree_insert(btree* tree, int key, void* value);
+btnode* btree_insertIntoNode(btree* tree, btnode* node, int key, void* value);
+void btree_delete(btree* tree, int key);
+void btree_deleteFromNode(btree* tree, btnode* node, int key);
+int btree_search(btnode* root, int key);
 
 
 // support functions
 
 int binarySearchPos(btnode* node, int key);
 void btree_splitNode(btree* tree, btnode* node, btnode* newRoot, int pos);
-void btree_rebalanceNode(btree* tree, btnode* root, int val);
+void btree_rebalanceNode(btree* tree, btnode* root, int key);
 void printBtree(btnode* root);
+void moveKeyAndVal(btnode* from, int fromIdx, btnode* to, int toIdx);
 
 btnode* getInorderPredecessor(btree* tree, btnode* node, int idx);
 
@@ -53,7 +55,7 @@ int main(void) {
     int i;
         for (i = 0; i < INSERTLEN; i++)
     {
-        btree_insert(&tree, insertElements[i]);
+        btree_insert(&tree, insertElements[i], NULL);
     }
     printBtree(tree.root);
     printf("\n");
@@ -62,8 +64,7 @@ int main(void) {
     printBtree(tree.root);
     printf("\n");
     btree_search(tree.root, 14);
-    btree_search(tree.root, 35
-    );
+    btree_search(tree.root, 35);
     freeTree(tree.root);
     return 0;
 }
@@ -78,26 +79,27 @@ btnode* btree_createNode(btree* tree) {
     node->nOChildren = 0;
     return node;
 }
-btnode* btree_createNodeWithVal(btree* tree, int val) {
+btnode* btree_createNodeWithVal(btree* tree, int key, void* value) {
     btnode *node = btree_createNode(tree);
-    node->keys[0] = val;
+    node->keys[0] = key;
+    node->values[0] = value;
     node->nOKeys = 1;
     return node;
 }
-void btree_insert(btree* tree, int val) {
+void btree_insert(btree* tree, int key, void* value) {
     if (!tree->root) {
-        tree->root = btree_createNodeWithVal(tree, val);
+        tree->root = btree_createNodeWithVal(tree, key, value);
     }
     else {
-        btnode* ret = btree_insertIntoNode(tree, tree->root, val);
+        btnode* ret = btree_insertIntoNode(tree, tree->root, key, value);
         if (ret) {
             tree->root = ret;
         }
     }
 }
-void btree_delete(btree* tree, int val) {
+void btree_delete(btree* tree, int key) {
     if (tree->root) {
-        btree_deleteFromNode(tree, tree->root, val);
+        btree_deleteFromNode(tree, tree->root, key);
         if (tree->root->nOKeys == 0) {
             btnode* prevRoot = tree->root;
             tree->root = prevRoot->children[0];
@@ -106,14 +108,14 @@ void btree_delete(btree* tree, int val) {
     }
 }
 
-void btree_deleteFromNode(btree* tree, btnode* node, int val) {
-    int pos = binarySearchPos(node, val);
-    if (pos < node->nOKeys && node->keys[pos] == val) {
+void btree_deleteFromNode(btree* tree, btnode* node, int key) {
+    int pos = binarySearchPos(node, key);
+    if (pos < node->nOKeys && node->keys[pos] == key) {
         if (!node->nOChildren) {
             // is a leaf, just delete
             // left shift to delete
             for (int i = pos; i < node->nOKeys - 1; i++) {
-                node->keys[i] = node->keys[i + 1];
+                moveKeyAndVal(node, i + 1, node, i);
             }
             node->nOKeys--;
             if (node->nOKeys < tree->t - 1) {
@@ -123,7 +125,7 @@ void btree_deleteFromNode(btree* tree, btnode* node, int val) {
         else {
             // deleting from internal node
             btnode* predecessor = getInorderPredecessor(tree, node, pos);
-            node->keys[pos] = predecessor->keys[predecessor->nOKeys - 1];
+            moveKeyAndVal(predecessor, predecessor->nOKeys - 1, node, pos);
             predecessor->nOKeys--;
             if (predecessor->nOKeys < tree->t - 1) {
                 btree_rebalanceNode(tree, tree->root, predecessor->keys[0]);
@@ -132,7 +134,7 @@ void btree_deleteFromNode(btree* tree, btnode* node, int val) {
     }
     else {
         if (node->nOChildren) {
-            btree_deleteFromNode(tree, node->children[pos], val);
+            btree_deleteFromNode(tree, node->children[pos], key);
         }
         else {
             return;
@@ -140,25 +142,25 @@ void btree_deleteFromNode(btree* tree, btnode* node, int val) {
     }
 
 }
-void btree_rebalanceNode(btree* tree, btnode* root, int val) { // val helps find the node we need to rebelance
+void btree_rebalanceNode(btree* tree, btnode* root, int key) { // key helps find the node we need to rebelance
     if (!root->nOChildren) {
         // we need to rebalance this node, it is done from the parent
         return;
     }
-    int pos = binarySearchPos(root, val);
+    int pos = binarySearchPos(root, key);
     // recursively find the node we child we need to rebalance (deletion always first removes a key from a child: via normal deletion or replacing with inorder predecessor)
-    btree_rebalanceNode(tree, root->children[pos], val);
+    btree_rebalanceNode(tree, root->children[pos], key);
     if (root->children[pos]->nOKeys < tree->t - 1) {
         // the child needs rebalancing (might be in an internal node whos child has been rebalanced)
 
         if (pos < root->nOChildren - 1 && root->children[pos + 1]->nOKeys > tree->t - 1) {
             // we have a right sibling who has a key to spare
             // rotate left (copy right separator to end)
-            root->children[pos]->keys[root->children[pos]->nOKeys] = root->keys[pos];
-            root->keys[pos] = root->children[pos + 1]->keys[0];
+            moveKeyAndVal(root, pos, root->children[pos], root->children[pos]->nOKeys);
+            moveKeyAndVal(root->children[pos + 1], 0, root, pos);
             // shift left in right sibling
             for (int i = 0; i < root->children[pos + 1]->nOKeys - 1; i++) {
-                root->children[pos + 1]->keys[i] = root->children[pos + 1]->keys[i + 1];
+                moveKeyAndVal(root->children[pos + 1], i + 1, root->children[pos + 1], i);
             }
             // update key counts
             root->children[pos]->nOKeys++;
@@ -179,10 +181,10 @@ void btree_rebalanceNode(btree* tree, btnode* root, int val) { // val helps find
             // rotate right (copy left separator to start)
             // shift keys in deficient node right
             for (int i = root->children[pos]->nOKeys; i > 0; i--) {
-                root->children[pos]->keys[i] = root->children[pos]->keys[i - 1];
+                moveKeyAndVal(root->children[pos], i - 1, root->children[pos], i);
             }
-            root->children[pos]->keys[0] = root->keys[pos - 1];
-            root->keys[pos - 1] = root->children[pos - 1]->keys[root->children[pos - 1]->nOKeys - 1];
+            moveKeyAndVal(root, pos - 1, root->children[pos], 0);
+            moveKeyAndVal(root->children[pos - 1], root->children[pos - 1]->nOKeys - 1, root, pos - 1);
             // update key counts
             root->children[pos]->nOKeys++;
             root->children[pos - 1]->nOKeys--;
@@ -207,19 +209,17 @@ void btree_rebalanceNode(btree* tree, btnode* root, int val) { // val helps find
             int leftIdx = pos > 0 ? pos - 1 : pos;
             int rightIdx = leftIdx + 1;
             // move separator to leftIdx
-            root->children[leftIdx]->keys[root->children[leftIdx]->nOKeys] =
-            root->keys[leftIdx];
+            moveKeyAndVal(root, leftIdx, root->children[leftIdx], root->children[leftIdx]->nOKeys);
             // left shift keys in parent
             for (int i = leftIdx; i < root->nOKeys - 1; i++) {
-                root->keys[i] = root->keys[i + 1];
+                moveKeyAndVal(root, i + 1, root, i);
             }
             // update key counts
             root->children[leftIdx]->nOKeys++;
             root->nOKeys--;
             // copy keys of rightIdx to the leftIdx 
             for (int i = 0; i < root->children[rightIdx]->nOKeys; i++) {
-                root->children[leftIdx]->keys[root->children[leftIdx]->nOKeys] = 
-                root->children[rightIdx]->keys[i];
+                moveKeyAndVal(root->children[rightIdx], i, root->children[leftIdx], root->children[leftIdx]->nOKeys);
                 root->children[leftIdx]->nOKeys++;
             }
             // copy children of rightIdx to the leftIdx
@@ -243,12 +243,12 @@ void btree_rebalanceNode(btree* tree, btnode* root, int val) { // val helps find
 
 }
 
-btnode* btree_insertIntoNode(btree* tree, btnode* node, int val) {
-    int pos = binarySearchPos(node, val);
-    // pos points to a new suggested position, current keys[pos] is bigger than val
+btnode* btree_insertIntoNode(btree* tree, btnode* node, int key, void* value) {
+    int pos = binarySearchPos(node, key);
+    // pos points to a new suggested position, current keys[pos] is bigger than key
     // points to a proper child
-    if (node->keys[pos] == val) {
-        // val already inserted
+    if (node->keys[pos] == key) {
+        // key already inserted
         return NULL;
     }
     btnode* ret = NULL;
@@ -256,25 +256,26 @@ btnode* btree_insertIntoNode(btree* tree, btnode* node, int val) {
     if (is_leaf) {
         // is a leaf -> insert here
         if (node->nOKeys == tree -> m - 1) {
-            // will overflow -> store the val to be inserted in ret
+            // will overflow -> store the key to be inserted in ret
             // ret will contain the value that is popped up and 2 children (first  node, second new)
-            ret = btree_createNodeWithVal(tree, val);
+            ret = btree_createNodeWithVal(tree, key, value);
             btree_splitNode(tree, node, ret, pos);
         }
         else {
             // has space -> just insert
             // shift keys to the right of pos to the right
             for (int i = node->nOKeys; i > pos; i--) {
-                node->keys[i] = node->keys[i - 1];
+                moveKeyAndVal(node, i - 1, node, i);
             }
-            // insert val
-            node->keys[pos] = val;
+            // insert key
+            node->keys[pos] = key;
+            node->values[pos] = value;
             node->nOKeys++;
         }
     }
     else {
         // has children -> insert into proper child, then see if a value popped up in ret and correctly insert it into this parent node
-        ret = btree_insertIntoNode(tree, node->children[pos], val);
+        ret = btree_insertIntoNode(tree, node->children[pos], key, value);
         if (ret) {
             // the child has overflown, the new value and splitted children have to be inserted in this node
             if (node->nOKeys == tree->m - 1) {
@@ -287,10 +288,11 @@ btnode* btree_insertIntoNode(btree* tree, btnode* node, int val) {
                 // insert the popped up key, insert the children
                 // right shift keys
                 for (int i = node->nOKeys; i > pos; i--) {
-                    node->keys[i] = node->keys[i - 1];
+                    moveKeyAndVal(node, i - 1, node, i);
                 }
                 // insert key
                 node->keys[pos] = ret->keys[0];
+                node->values[pos] = ret->values[0];
                 // right shift children
                 // pos + 1 because the child at pos is already equal to the child that we split, we do not need to move it
                 for (int i = node->nOChildren; i > pos + 1; i--) {
@@ -330,7 +332,7 @@ int binarySearchPos(btnode* node, int key) {
 }
 void btree_splitNode(btree* tree, btnode* node, btnode* newRoot, int pos) {
     // newRoot contains value we want to insert and then split, pos already has the position
-    btnode* tmp = btree_createNodeWithVal(tree, newRoot->keys[0]);
+    btnode* tmp = btree_createNode(tree);
     // if newRoot containts children then the oveflow from a child caused an overflow at node, so we will need to properly divide the children
     tmp->children[0] = newRoot->children[0];
     tmp->children[1] = newRoot->children[1];
@@ -340,39 +342,41 @@ void btree_splitNode(btree* tree, btnode* node, btnode* newRoot, int pos) {
     if (pos < tree->t - 1) {
         // our value will end up in the left child, the middle will be an element at t - 2 as it will get shifted forwards
         // remember the to be popped up element in tmp
-        tmp->keys[0] = node->keys[tree->t - 2];
+        moveKeyAndVal(node, tree->t - 2, tmp, 0);
         // right shift elements to fill the gap (which is current t - 2)
         for (int i = tree->t - 2; i > pos; i--) {
-            node->keys[i] = node->keys[i - 1];
+            moveKeyAndVal(node, i - 1, node, i);
         }
-        // insert val
-        node->keys[pos] = newRoot->keys[0];
+        // insert key
+        moveKeyAndVal(newRoot, 0, node, pos);
     }
     else if (pos > tree->t - 1) {
         // our value will end up in the right child
         // the new middle will be current t - 1, so it will be deleted from the array
         // so pos we do not need to move the key at pos to the right but insert to the left of it as there will be guaranteed space
         // remember the element to be popped up in tmp
-        tmp->keys[0] = node->keys[tree->t - 1];
+        moveKeyAndVal(node, tree->t - 1, tmp, 0);
         // left shift elements to fill in the gap at t - 1
-        // pos - 1 as at pos there is an element that is more than val, so it has to stay to the right of it and not get shifted
+        // pos - 1 as at pos there is an element that is more than key, so it has to stay to the right of it and not get shifted
         for (int i = tree->t - 1; i < pos - 1; i++) {
             node->keys[i] = node->keys[i + 1];
+            moveKeyAndVal(node, i + 1, node, i);
         }
-        // insert our val
-        node->keys[pos - 1] = newRoot->keys[0];
+        // insert our key
+        moveKeyAndVal(newRoot, 0, node, pos - 1);
     }
     else {
-        // our val will be popped up
+        // our key will be popped up
         tmp->keys[0] = newRoot->keys[0]; // useless but good for visualization
+        moveKeyAndVal(newRoot, 0, tmp, 0);
     }
     // put the element that will be upshifted in the new root
-    newRoot->keys[0] = tmp->keys[0];
+    moveKeyAndVal(tmp, 0, newRoot, 0);
     newRoot->children[0] = node;
     newRoot->children[1] = btree_createNode(tree);
     // divide the keys between the children
     for (int i = tree->t - 1; i < tree->m - 1; i++) {
-        newRoot->children[1]->keys[i - tree->t + 1] = newRoot->children[0]->keys[i];
+        moveKeyAndVal(newRoot->children[0], i, newRoot->children[1], i - tree->t + 1);
         newRoot->children[0]->keys[i] = INT_MAX;
     }
     if (hasChildren) {
@@ -396,12 +400,12 @@ void btree_splitNode(btree* tree, btnode* node, btnode* newRoot, int pos) {
                 newRoot->children[1]->children[i - tree->t] = newRoot->children[0]->children[i];
             }
             // at right child shift children to the right to make space for the divided children of newRoot, also remember real position is pos - 1
-            // position of val in the right child is calculated as pos - 1 - (t - 1) = pos - t
+            // position of key in the right child is calculated as pos - 1 - (t - 1) = pos - t
             for (int i = tree->t; i > pos - tree->t + 1; i--) {
                 newRoot->children[1]->children[i] = newRoot->children[1]->children[i - 1];
             }
             // insert the childrent from newRoot
-            // if our val popped up into newRoot, it is useless but better for visualization to show that left child contains the 0 child of newRoot at index t - 1
+            // if our key popped up into newRoot, it is useless but better for visualization to show that left child contains the 0 child of newRoot at index t - 1
             newRoot->children[1]->children[pos - tree->t + 1] = tmp->children[1];
             if (pos == tree->t) {
                 newRoot->children[0]->children[tree->t - 1] = tmp->children[0]; // useless
@@ -472,20 +476,25 @@ btnode* getInorderPredecessor(btree* tree, btnode* node, int idx) {
 }
    
 
-int btree_search(btnode* root, int val) {
-    int pos = binarySearchPos(root, val);
-    if (root->keys[pos] == val) {
-        printf("Found %d\n", val);
+int btree_search(btnode* root, int key) {
+    int pos = binarySearchPos(root, key);
+    if (root->keys[pos] == key) {
+        printf("Found %d\n", key);
         return 0;
     }
     else {
         if (root->nOChildren) {
-            return btree_search(root->children[pos], val);
+            return btree_search(root->children[pos], key);
         }
         else {
-            printf("No key %d in the tree\n", val);
+            printf("No key %d in the tree\n", key);
             return 1;
         }
     }
 
+}
+
+void moveKeyAndVal(btnode* from, int fromIdx, btnode* to, int toIdx) {
+    to->keys[toIdx] = from->keys[fromIdx];
+    to->values[toIdx] = from->values[fromIdx];
 }
