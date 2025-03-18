@@ -75,6 +75,9 @@ void initTree(btree* tree) {
 }
 btnode* btree_createNode(btree* tree) {
     btnode* node = malloc(sizeof(btnode));
+    if (node == NULL) {
+        exit(EXIT_FAILURE);
+    }
     node->nOKeys = 0;
     node->nOChildren = 0;
     return node;
